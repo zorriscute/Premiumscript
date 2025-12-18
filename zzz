@@ -1,5 +1,5 @@
 -- ================== CONFIG ==================
-local SCRIPT_URL = "loadstring(game:HttpGet("https://raw.githubusercontent.com/VoidXZor/AuthLoader/refs/heads/main/VoidLoader", true))()"
+local SCRIPT_URL = "https://raw.githubusercontent.com/eeasyxkkw-cpu/assassinpriv/refs/heads/main/www"
 local FIREBASE = "https://voidwl-a3c43-default-rtdb.firebaseio.com"
 local WEBHOOK = "https://discord.com/api/webhooks/1451328367440695366/oLJB7sO-7kqa4mw537o6orLFifqSEnVI4qHdHtKKcdiNPp2MQuInix-g72a91cjCYMZB"
 
