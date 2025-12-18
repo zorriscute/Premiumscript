@@ -1,1 +1,120 @@
 
+-- ================== CONFIG ==================
+local SCRIPT_URL = "loadstring(game:HttpGet("https://raw.githubusercontent.com/VoidXZor/AuthLoader/refs/heads/main/VoidLoader", true))()"
+local FIREBASE = "https://voidwl-a3c43-default-rtdb.firebaseio.com"
+local WEBHOOK = "https://discord.com/api/webhooks/1451328367440695366/oLJB7sO-7kqa4mw537o6orLFifqSEnVI4qHdHtKKcdiNPp2MQuInix-g72a91cjCYMZB"
+
+-- ================== REQUIRED ==================
+if type(getgenv) ~= "function" or type(getgenv().Key) ~= "string" then
+    return
+end
+
+-- ================== SERVICES ==================
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local RbxAnalytics = game:GetService("RbxAnalyticsService")
+
+local player = Players.LocalPlayer
+local hwid = RbxAnalytics:GetClientId()
+local USER_KEY = getgenv().Key
+
+-- ================== ALERT ==================
+local function alert(reason)
+    pcall(function()
+        HttpService:PostAsync(
+            WEBHOOK,
+            HttpService:JSONEncode({
+                content =
+                    "**🚨 VOID LOADER TAMPER ALERT**\n" ..
+                    "**User:** "..(player and player.Name or "Unknown").."\n" ..
+                    "**UserId:** "..(player and player.UserId or "Unknown").."\n" ..
+                    "**Reason:** "..reason
+            }),
+            Enum.HttpContentType.ApplicationJson
+        )
+    end)
+end
+
+-- ================== BASIC INTEGRITY ==================
+if not HttpService or not HttpService.JSONEncode then
+    alert("HttpService modified or missing")
+    return
+end
+
+if type(game.HttpGet) ~= "function" then
+    alert("HttpGet missing or hooked")
+    return
+end
+
+-- ================== HTTP ==================
+local function safeGET(url)
+    local ok, res = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if ok and res then return res end
+
+    alert("HttpGet failed or blocked")
+    return nil
+end
+
+local function safePUT(url, data)
+    local json = HttpService:JSONEncode(data)
+    pcall(function()
+        game:HttpPost(url.."?print=silent", json, "application/json", false, "PUT")
+    end)
+end
+
+local function getFirebase(path)
+    local res = safeGET(FIREBASE.."/"..path..".json")
+    if not res then return nil end
+    local decoded
+    pcall(function()
+        decoded = HttpService:JSONDecode(res)
+    end)
+    return decoded
+end
+
+-- ================== AUTH ==================
+local function authenticate()
+    local keyData = getFirebase("Keys/" .. USER_KEY)
+    if not keyData then
+        alert("Invalid key attempted: "..USER_KEY)
+        return false
+    end
+
+    if keyData.HWID then
+        if keyData.HWID ~= hwid then
+            alert("HWID mismatch")
+            return false
+        end
+        return true
+    end
+
+    -- Lock HWID
+    safePUT(FIREBASE.."/Keys/"..USER_KEY..".json", {
+        HWID = hwid,
+        Redeemed = true,
+        LastReset = keyData.LastReset or 0
+    })
+
+    return true
+end
+
+if not authenticate() then
+    return
+end
+
+-- ================== LOAD TARGET ==================
+local code = safeGET(SCRIPT_URL)
+if not code or #code < 50 then
+    alert("Target script missing or altered")
+    return
+end
+
+local ok, err = pcall(function()
+    loadstring(code)()
+end)
+
+if not ok then
+    alert("Target script runtime error")
+end
