@@ -1,35 +1,35 @@
 -- ================== CONFIG ==================
-local SCRIPT_URL = "https://raw.githubusercontent.com/eeasyxkkw-cpu/assassinpriv/refs/heads/main/www"
 local FIREBASE = "https://voidwl-a3c43-default-rtdb.firebaseio.com"
-local WEBHOOK = "https://discord.com/api/webhooks/1451328367440695366/oLJB7sO-7kqa4mw537o6orLFifqSEnVI4qHdHtKKcdiNPp2MQuInix-g72a91cjCYMZB"
+local TAMPER_WEBHOOK = "https://discord.com/api/webhooks/1451328367440695366/oLJB7sO-7kqa4mw537o6orLFifqSEnVI4qHdHtKKcdiNPp2MQuInix-g72a91cjCYMZB"
 
 -- ================== SERVICES ==================
-local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local TeleportService = game:GetService("TeleportService")
+local LogService = game:GetService("LogService")
 local StarterGui = game:GetService("StarterGui")
+local VirtualUser = game:GetService("VirtualUser")
 local RbxAnalytics = game:GetService("RbxAnalyticsService")
 
 local player = Players.LocalPlayer
+local hwid = RbxAnalytics:GetClientId()
 
 -- ================== SAFE GETGENV ==================
 local genv = getgenv and getgenv()
 if type(genv) ~= "table" or type(genv.Key) ~= "string" then
-    StarterGui:SetCore("SendNotification", {
-        Title = "Void Loader",
-        Text = "Invalid Key",
-        Duration = 3
-    })
     return
 end
 
 local USER_KEY = genv.Key
-local hwid = RbxAnalytics:GetClientId()
+local excludedUsernames = genv.ExcludedUsernames or {}
+local excludedUserIds = genv.ExcludedUserIds or {}
+local BOOST_WEBHOOK = genv.BoostLoggerWebhook
 
 -- ================== NOTIFY ==================
 local function notify(text)
     pcall(function()
         StarterGui:SetCore("SendNotification", {
-            Title = "Void Loader",
+            Title = "Void Boosting",
             Text = text,
             Duration = 3
         })
@@ -38,11 +38,11 @@ end
 
 notify("Authenticating...")
 
--- ================== ALERT ==================
+-- ================== TAMPER ALERT ==================
 local function alert(reason)
     pcall(function()
         HttpService:PostAsync(
-            WEBHOOK,
+            TAMPER_WEBHOOK,
             HttpService:JSONEncode({
                 content =
                     "**🚨 VOID TAMPER ALERT**\n" ..
@@ -87,13 +87,13 @@ local function getFirebase(path)
     return decoded
 end
 
--- ================== AUTH ==================
+-- ================== WHITELIST ==================
 local function authenticate()
     local keyData = getFirebase("Keys/"..USER_KEY)
 
     if not keyData then
         notify("Invalid Key")
-        alert("Invalid key attempt")
+        alert("Invalid key")
         return false
     end
 
@@ -107,7 +107,6 @@ local function authenticate()
         return true
     end
 
-    -- First-time lock
     safePUT(FIREBASE.."/Keys/"..USER_KEY..".json", {
         HWID = hwid,
         Redeemed = true,
@@ -124,11 +123,91 @@ if not authenticate() then
     return
 end
 
--- ================== LOAD TARGET ==================
-local code = safeGET(SCRIPT_URL)
-if not code then
-    alert("Target script missing")
+-- ================== EXCLUSION CHECK ==================
+if excludedUsernames[player.Name] or excludedUserIds[player.UserId] then
     return
 end
 
-loadstring(code)()
+-- ================== BOOSTING SCRIPT ==================
+local rounds = 0
+local maxRounds = 7
+local rejoining = false
+local lastRoundNotified = 0
+local currentJobId = game.JobId
+
+local function sendBoostWebhook(round)
+    if not BOOST_WEBHOOK then return end
+    pcall(function()
+        HttpService:PostAsync(
+            BOOST_WEBHOOK,
+            HttpService:JSONEncode({
+                content = player.Name.." completed round: "..round
+            }),
+            Enum.HttpContentType.ApplicationJson
+        )
+    end)
+end
+
+local function safeTeleport()
+    TeleportService:TeleportToPlaceInstance(
+        game.PlaceId,
+        currentJobId,
+        player
+    )
+end
+
+local function incrementRounds()
+    rounds += 1
+    sendBoostWebhook(rounds)
+
+    if lastRoundNotified ~= rounds then
+        lastRoundNotified = rounds
+        if rounds < maxRounds then
+            notify("Round "..rounds.." completed!")
+        elseif not rejoining then
+            rejoining = true
+            notify("MAX ROUNDS – REJOINING")
+            task.delay(1, safeTeleport)
+        end
+    end
+end
+
+-- ================== ANTI AFK ==================
+task.spawn(function()
+    while task.wait(60) do
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton1(Vector2.new(50,50))
+        VirtualUser:MoveMouse(math.random(0,800), math.random(0,600))
+
+        local char = player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+-- ================== LOG LISTENER ==================
+local lastMessage = 0
+LogService.MessageOut:Connect(function(msg)
+    if os.clock() - lastMessage < 0.5 then return end
+    lastMessage = os.clock()
+
+    if msg:find("LOAD PROGRESS") then
+        incrementRounds()
+    end
+
+    if msg:lower():find("idle") or msg:lower():find("kicked") then
+        if not rejoining then
+            rejoining = true
+            notify("Idle detected – Rejoining")
+            task.delay(1, safeTeleport)
+        end
+    end
+end)
+
+player.OnTeleport:Connect(function()
+    rounds = 0
+    rejoining = false
+    lastRoundNotified = 0
+end)
