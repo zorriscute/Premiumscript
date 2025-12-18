@@ -1,22 +1,42 @@
-
 -- ================== CONFIG ==================
-local SCRIPT_URL = "https://raw.githubusercontent.com/VoidXZor/AuthLoader/refs/heads/main/VoidLoader"
+local SCRIPT_URL = "https://raw.githubusercontent.com/YOURNAME/REPO/branch/target.lua"
 local FIREBASE = "https://voidwl-a3c43-default-rtdb.firebaseio.com"
 local WEBHOOK = "https://discord.com/api/webhooks/1451328367440695366/oLJB7sO-7kqa4mw537o6orLFifqSEnVI4qHdHtKKcdiNPp2MQuInix-g72a91cjCYMZB"
-
--- ================== REQUIRED ==================
-if type(getgenv) ~= "function" or type(getgenv().Key) ~= "string" then
-    return
-end
 
 -- ================== SERVICES ==================
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local StarterGui = game:GetService("StarterGui")
 local RbxAnalytics = game:GetService("RbxAnalyticsService")
 
 local player = Players.LocalPlayer
+
+-- ================== SAFE GETGENV ==================
+local genv = getgenv and getgenv()
+if type(genv) ~= "table" or type(genv.Key) ~= "string" then
+    StarterGui:SetCore("SendNotification", {
+        Title = "Void Loader",
+        Text = "Invalid Key",
+        Duration = 3
+    })
+    return
+end
+
+local USER_KEY = genv.Key
 local hwid = RbxAnalytics:GetClientId()
-local USER_KEY = getgenv().Key
+
+-- ================== NOTIFY ==================
+local function notify(text)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "Void Loader",
+            Text = text,
+            Duration = 3
+        })
+    end)
+end
+
+notify("Authenticating...")
 
 -- ================== ALERT ==================
 local function alert(reason)
@@ -25,9 +45,9 @@ local function alert(reason)
             WEBHOOK,
             HttpService:JSONEncode({
                 content =
-                    "**🚨 VOID LOADER TAMPER ALERT**\n" ..
-                    "**User:** "..(player and player.Name or "Unknown").."\n" ..
-                    "**UserId:** "..(player and player.UserId or "Unknown").."\n" ..
+                    "**🚨 VOID TAMPER ALERT**\n" ..
+                    "**User:** "..player.Name.."\n" ..
+                    "**UserId:** "..player.UserId.."\n" ..
                     "**Reason:** "..reason
             }),
             Enum.HttpContentType.ApplicationJson
@@ -35,32 +55,25 @@ local function alert(reason)
     end)
 end
 
--- ================== BASIC INTEGRITY ==================
-if not HttpService or not HttpService.JSONEncode then
-    alert("HttpService modified or missing")
-    return
-end
-
-if type(game.HttpGet) ~= "function" then
-    alert("HttpGet missing or hooked")
-    return
-end
-
 -- ================== HTTP ==================
 local function safeGET(url)
     local ok, res = pcall(function()
         return game:HttpGet(url)
     end)
-    if ok and res then return res end
-
-    alert("HttpGet failed or blocked")
+    if ok then return res end
+    alert("HttpGet failed")
     return nil
 end
 
 local function safePUT(url, data)
-    local json = HttpService:JSONEncode(data)
     pcall(function()
-        game:HttpPost(url.."?print=silent", json, "application/json", false, "PUT")
+        game:HttpPost(
+            url.."?print=silent",
+            HttpService:JSONEncode(data),
+            "application/json",
+            false,
+            "PUT"
+        )
     end)
 end
 
@@ -76,27 +89,34 @@ end
 
 -- ================== AUTH ==================
 local function authenticate()
-    local keyData = getFirebase("Keys/" .. USER_KEY)
+    local keyData = getFirebase("Keys/"..USER_KEY)
+
     if not keyData then
-        alert("Invalid key attempted: "..USER_KEY)
+        notify("Invalid Key")
+        alert("Invalid key attempt")
         return false
     end
 
     if keyData.HWID then
         if keyData.HWID ~= hwid then
+            notify("HWID Mismatch")
             alert("HWID mismatch")
             return false
         end
+        notify("Executed!")
         return true
     end
 
-    -- Lock HWID
+    -- First-time lock
     safePUT(FIREBASE.."/Keys/"..USER_KEY..".json", {
         HWID = hwid,
         Redeemed = true,
         LastReset = keyData.LastReset or 0
     })
 
+    notify("HWID Locked!")
+    task.wait(0.5)
+    notify("Executed!")
     return true
 end
 
@@ -106,15 +126,9 @@ end
 
 -- ================== LOAD TARGET ==================
 local code = safeGET(SCRIPT_URL)
-if not code or #code < 50 then
-    alert("Target script missing or altered")
+if not code then
+    alert("Target script missing")
     return
 end
 
-local ok, err = pcall(function()
-    loadstring(code)()
-end)
-
-if not ok then
-    alert("Target script runtime error")
-end
+loadstring(code)()
